@@ -1,5 +1,5 @@
 ﻿# הגדרת המקור לImGui כולל backends
-set(IMGUI_DIR ${CMAKE_SOURCE_DIR}/third_party/imgui)  # התאם את הנתיב למיקום ImGui בפרויקט שלך
+set(IMGUI_DIR ${CMAKE_SOURCE_DIR}/third_party/imgui)  
 
 set(IMGUI_SOURCES
     ${IMGUI_DIR}/imgui.cpp
