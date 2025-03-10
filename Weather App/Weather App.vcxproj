@@ -111,7 +111,11 @@
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalLibraryDirectories>C:\cpp_libs\glfw\lib-vc2022;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>glfw3.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>glfw3.lib;opengl32.lib
+;glfw3.lib
+
+
+;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -131,23 +135,32 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="httplib.h" />
-    <ClInclude Include="json.hpp" />
-    <ClInclude Include="WeatherAPI.h" />
-    <ClInclude Include="WeatherApp.h" />
+    <Text Include="CMakeLists.txt" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\..\..\..\..\..\cpp_libs\imgui\backends\imgui_impl_glfw.h" />
+    <ClInclude Include="..\..\..\..\..\..\cpp_libs\imgui\backends\imgui_impl_opengl3.h" />
+    <ClInclude Include="FavoriteCities.h" />
+    <ClInclude Include="include\stb_image.h" />
+    <ClInclude Include="ThreadPool.h" />
+    <ClInclude Include="WeatherAPI.h" />
+    <ClInclude Include="WeatherApp.h" />
+    <ClInclude Include="WeatherData.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\..\..\..\..\..\cpp_libs\imgui\backends\imgui_impl_glfw.cpp" />
+    <ClCompile Include="..\..\..\..\..\..\cpp_libs\imgui\backends\imgui_impl_opengl3.cpp" />
+    <ClCompile Include="FavoriteCities.cpp" />
     <ClCompile Include="imgui.cpp" />
     <ClCompile Include="imgui_demo.cpp" />
     <ClCompile Include="imgui_draw.cpp" />
     <ClCompile Include="imgui_tables.cpp" />
     <ClCompile Include="imgui_widgets.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="ThreadPool.cpp" />
     <ClCompile Include="WeatherAPI.cpp" />
     <ClCompile Include="WeatherApp.cpp" />
-  </ItemGroup>
-  <ItemGroup>
-    <Text Include="CMakeLists.txt" />
+    <ClCompile Include="WeatherData.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

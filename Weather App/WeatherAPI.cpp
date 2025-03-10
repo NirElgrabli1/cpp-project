@@ -1,8 +1,8 @@
-// WeatherAPI.cpp
+﻿/**
+ * @file WeatherAPI.cpp
+ * @brief Implementation of the WeatherAPI class with improved error handling
+ */
 #include "WeatherAPI.h"
-#include "httplib.h"
-#include "json.hpp"
-#include <iostream>
 #include <chrono>
 #include <ctime>
 #include <iomanip>
@@ -10,194 +10,189 @@
 
 using json = nlohmann::json;
 
-WeatherAPI::WeatherAPI(const std::string& key) : apiKey(key) {}
+WeatherAPI::WeatherAPI(const std::string& apiKey)
+    : apiKey(apiKey), baseUrl("api.openweathermap.org"), isRunning(true) {
+}
 
-std::optional<WeatherData> WeatherAPI::getCurrentWeather(const std::string& city) {
-    try {
-        // Create httplib client (standard HTTP version)
-        httplib::Client cli("api.openweathermap.org");
+WeatherAPI::~WeatherAPI() {
+    cancel();
+}
 
-        // Set timeouts to prevent hanging
-        cli.set_connection_timeout(5, 0); // 5 seconds
-        cli.set_read_timeout(5, 0); // 5 seconds
+void WeatherAPI::cancel() {
+    isRunning.store(false);
+}
 
-        // Construct the API endpoint
-        std::string endpoint = "/data/2.5/weather?q=" + httplib::detail::encode_url(city) +
-            "&units=metric&appid=" + apiKey;
+// Encode URL to handle spaces and special characters
+std::string encodeURL(const std::string& input) {
+    std::string result = input;
+    std::string::size_type pos = 0;
 
-        // Make the request
-        auto res = cli.Get(endpoint.c_str());
+    // Replace spaces with %20
+    while ((pos = result.find(' ', pos)) != std::string::npos) {
+        result.replace(pos, 1, "%20");
+        pos += 3;
+    }
 
-        // Check if request was successful
+    return result;
+}
+
+WeatherInfo WeatherAPI::parseCurrentWeatherJson(const json& data) {
+    WeatherInfo info;
+
+    info.cityName = data["name"].get<std::string>();
+    info.countryCode = data["sys"]["country"].get<std::string>();
+
+    // Temperature is already in Celsius because we use units=metric
+    info.temperature = data["main"]["temp"].get<double>();
+    info.feelsLike = data["main"]["feels_like"].get<double>();
+    info.tempMin = data["main"]["temp_min"].get<double>();
+    info.tempMax = data["main"]["temp_max"].get<double>();
+    info.pressure = data["main"]["pressure"].get<double>();
+    info.humidity = data["main"]["humidity"].get<double>();
+
+    if (!data["wind"].is_null()) {
+        info.windSpeed = data["wind"]["speed"].get<double>();
+        info.windDeg = data["wind"]["deg"].get<double>();
+    }
+
+    if (!data["weather"].empty()) {
+        info.weatherMain = data["weather"][0]["main"].get<std::string>();
+        info.weatherDescription = data["weather"][0]["description"].get<std::string>();
+        info.weatherIcon = data["weather"][0]["icon"].get<std::string>();
+    }
+
+    info.sunrise = data["sys"]["sunrise"].get<long long>();
+    info.sunset = data["sys"]["sunset"].get<long long>();
+
+    // Format current time as string
+    auto now = std::chrono::system_clock::now();
+    auto time_t_now = std::chrono::system_clock::to_time_t(now);
+    std::stringstream ss;
+    ss << std::put_time(std::localtime(&time_t_now), "%Y-%m-%d %H:%M:%S");
+    info.lastUpdated = ss.str();
+
+    return info;
+}
+
+std::vector<ForecastInfo> WeatherAPI::parseForecastJson(const json& data) {
+    std::vector<ForecastInfo> forecastList;
+
+    for (const auto& item : data["list"]) {
+        ForecastInfo forecast;
+
+        forecast.dateTime = item["dt"].get<long long>();
+        // Already in Celsius because of units=metric
+        forecast.temperature = item["main"]["temp"].get<double>();
+        forecast.feelsLike = item["main"]["feels_like"].get<double>();
+        forecast.tempMin = item["main"]["temp_min"].get<double>();
+        forecast.tempMax = item["main"]["temp_max"].get<double>();
+        forecast.pressure = item["main"]["pressure"].get<double>();
+        forecast.humidity = item["main"]["humidity"].get<double>();
+
+        if (!item["wind"].is_null()) {
+            forecast.windSpeed = item["wind"]["speed"].get<double>();
+            forecast.windDeg = item["wind"]["deg"].get<double>();
+        }
+
+        if (!item["weather"].empty()) {
+            forecast.weatherMain = item["weather"][0]["main"].get<std::string>();
+            forecast.weatherDescription = item["weather"][0]["description"].get<std::string>();
+            forecast.weatherIcon = item["weather"][0]["icon"].get<std::string>();
+        }
+
+        forecastList.push_back(forecast);
+    }
+
+    return forecastList;
+}
+
+std::future<WeatherInfo> WeatherAPI::getCurrentWeather(const std::string& cityName) {
+    return std::async(std::launch::async, [this, cityName]() {
+        if (!isRunning.load()) {
+            throw std::runtime_error("API operation canceled");
+        }
+
+        // Properly encode the city name
+        std::string encodedCity = encodeURL(cityName);
+
+        httplib::Client cli(baseUrl);
+        // Use units=metric to get Celsius temperatures
+        std::string path = "/data/2.5/weather?q=" + encodedCity + "&appid=" + apiKey + "&units=metric";
+
+        auto res = cli.Get(path.c_str());
         if (res && res->status == 200) {
-            // Parse the response
-            return parseCurrentWeather(res->body, city);
+            json data = json::parse(res->body);
+            return parseCurrentWeatherJson(data);
         }
         else {
-            std::cerr << "API request failed: ";
+            std::string errorMsg = "Failed to get weather data";
             if (res) {
-                std::cerr << "Status: " << res->status << " - " << res->body;
+                errorMsg += ": " + std::to_string(res->status);
             }
-            else {
-                std::cerr << "connection error";
-            }
-            std::cerr << std::endl;
-            return std::nullopt;
+            throw std::runtime_error(errorMsg);
         }
-    }
-    catch (const std::exception& e) {
-        std::cerr << "Error fetching weather data: " << e.what() << std::endl;
-        return std::nullopt;
-    }
+        });
 }
 
-bool WeatherAPI::getForecast(WeatherData& weatherData) {
-    try {
-        // Create httplib client
-        httplib::Client cli("api.openweathermap.org");
+std::future<std::vector<ForecastInfo>> WeatherAPI::getForecast(const std::string& cityName, int days) {
+    return std::async(std::launch::async, [this, cityName, days]() {
+        if (!isRunning.load()) {
+            throw std::runtime_error("API operation canceled");
+        }
 
-        // Set timeouts to prevent hanging
-        cli.set_connection_timeout(5, 0); // 5 seconds
-        cli.set_read_timeout(5, 0); // 5 seconds
+        // Properly encode the city name
+        std::string encodedCity = encodeURL(cityName);
 
-        // Construct the API endpoint
-        std::string endpoint = "/data/2.5/forecast?q=" + httplib::detail::encode_url(weatherData.city) +
-            "&units=metric&appid=" + apiKey;
+        httplib::Client cli(baseUrl);
+        // Use units=metric to get Celsius temperatures
+        std::string path = "/data/2.5/forecast?q=" + encodedCity + "&cnt=" + std::to_string(days * 8) + "&appid=" + apiKey + "&units=metric";
 
-        // Make the request
-        auto res = cli.Get(endpoint.c_str());
-
-        // Check if request was successful
+        auto res = cli.Get(path.c_str());
         if (res && res->status == 200) {
-            // Parse the response
-            weatherData.forecast = parseForecast(res->body);
-            return true;
+            json data = json::parse(res->body);
+            return parseForecastJson(data);
         }
         else {
-            std::cerr << "Forecast API request failed: ";
+            std::string errorMsg = "Failed to get forecast data";
             if (res) {
-                std::cerr << "Status: " << res->status << " - " << res->body;
+                errorMsg += ": " + std::to_string(res->status);
             }
-            else {
-                std::cerr << "connection error";
-            }
-            std::cerr << std::endl;
-            return false;
+            throw std::runtime_error(errorMsg);
         }
-    }
-    catch (const std::exception& e) {
-        std::cerr << "Error fetching forecast data: " << e.what() << std::endl;
-        return false;
-    }
+        });
 }
 
-// The rest of the file stays the same
-WeatherData WeatherAPI::parseCurrentWeather(const std::string& jsonResponse, const std::string& city) {
-    WeatherData weather;
-    weather.city = city;
+std::future<std::vector<std::string>> WeatherAPI::searchCity(const std::string& query) {
+    return std::async(std::launch::async, [this, query]() {
+        if (!isRunning.load()) {
+            throw std::runtime_error("API operation canceled");
+        }
 
-    try {
-        json data = json::parse(jsonResponse);
+        // Properly encode the query
+        std::string encodedQuery = encodeURL(query);
 
-        // Parse main weather data
-        weather.temperature = data["main"]["temp"].get<double>();
-        weather.humidity = data["main"]["humidity"].get<int>();
-        weather.windSpeed = data["wind"]["speed"].get<double>();
+        httplib::Client cli(baseUrl);
+        std::string path = "/geo/1.0/direct?q=" + encodedQuery + "&limit=5&appid=" + apiKey;
 
-        // Parse weather description
-        if (!data["weather"].empty()) {
-            weather.description = data["weather"][0]["description"].get<std::string>();
+        auto res = cli.Get(path.c_str());
+        if (res && res->status == 200) {
+            json data = json::parse(res->body);
+            std::vector<std::string> cities;
+
+            for (const auto& city : data) {
+                std::string cityName = city["name"].get<std::string>();
+                std::string country = city["country"].get<std::string>();
+                cities.push_back(cityName + ", " + country);
+            }
+
+            return cities;
         }
         else {
-            weather.description = "No description available";
-        }
-
-        // Set timestamp
-        weather.timestamp = std::time(nullptr);
-
-    }
-    catch (const std::exception& e) {
-        std::cerr << "Error parsing weather JSON: " << e.what() << std::endl;
-    }
-
-    return weather;
-}
-
-std::vector<WeatherData::Forecast> WeatherAPI::parseForecast(const std::string& jsonResponse) {
-    // This stays the same as in your original code
-    // ...
-    std::vector<WeatherData::Forecast> forecasts;
-
-    try {
-        json data = json::parse(jsonResponse);
-
-        if (!data["list"].empty()) {
-            std::string currentDate = "";
-            WeatherData::Forecast dailyForecast;
-
-            // Track min/max temperatures for each day
-            double minTemp = 100.0;
-            double maxTemp = -100.0;
-
-            for (const auto& item : data["list"]) {
-                // Extract date from timestamp
-                std::time_t timestamp = item["dt"].get<int>();
-                std::tm* timeinfo = std::localtime(&timestamp);
-
-                char dateStr[11];
-                std::strftime(dateStr, sizeof(dateStr), "%d/%m/%Y", timeinfo);
-                std::string itemDate(dateStr);
-
-                // If new date or first item
-                if (currentDate != itemDate) {
-                    // Save previous date's forecast (except for first iteration)
-                    if (!currentDate.empty()) {
-                        dailyForecast.minTemp = minTemp;
-                        dailyForecast.maxTemp = maxTemp;
-                        forecasts.push_back(dailyForecast);
-                    }
-
-                    // Reset for new date
-                    currentDate = itemDate;
-                    dailyForecast = WeatherData::Forecast();
-                    dailyForecast.date = itemDate;
-                    minTemp = 100.0;
-                    maxTemp = -100.0;
-
-                    // Use noon data for the day's representative forecast
-                    if (timeinfo->tm_hour >= 11 && timeinfo->tm_hour <= 13) {
-                        dailyForecast.temperature = item["main"]["temp"].get<double>();
-                        dailyForecast.humidity = item["main"]["humidity"].get<int>();
-                        dailyForecast.windSpeed = item["wind"]["speed"].get<double>();
-
-                        if (!item["weather"].empty()) {
-                            dailyForecast.description = item["weather"][0]["description"].get<std::string>();
-                        }
-                    }
-                }
-
-                // Update min/max temperatures
-                double temp = item["main"]["temp"].get<double>();
-                if (temp < minTemp) minTemp = temp;
-                if (temp > maxTemp) maxTemp = temp;
+            std::string errorMsg = "Failed to search cities";
+            if (res) {
+                errorMsg += ": " + std::to_string(res->status);
             }
-
-            // Add the last day's forecast
-            if (!currentDate.empty()) {
-                dailyForecast.minTemp = minTemp;
-                dailyForecast.maxTemp = maxTemp;
-                forecasts.push_back(dailyForecast);
-            }
+            throw std::runtime_error(errorMsg);
         }
-    }
-    catch (const std::exception& e) {
-        std::cerr << "Error parsing forecast JSON: " << e.what() << std::endl;
-    }
-
-    // Limit to 5 days
-    if (forecasts.size() > 5) {
-        forecasts.resize(5);
-    }
-
-    return forecasts;
+        });
 }

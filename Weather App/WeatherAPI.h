@@ -1,26 +1,39 @@
-// WeatherAPI.h
+/**
+ * @file WeatherAPI.h
+ * @brief Interface for retrieving weather data from API
+ */
 #pragma once
-
 #include <string>
-#include <optional>
-#include "WeatherApp.h"
+#include <vector>
+#include <future>
+#include <atomic>
+#include "WeatherData.h"
+#include "httplib.h"
+#include "json.hpp"
 
+using json = nlohmann::json;
+
+/**
+ * @class WeatherAPI
+ * @brief Class for interacting with the OpenWeatherMap API
+ */
 class WeatherAPI {
 private:
     std::string apiKey;
-    // Keep using HTTP for now since your httplib may not support SSL
-    const std::string baseUrl = "http://api.openweathermap.org/data/2.5/";
+    std::string baseUrl;
+    std::atomic<bool> isRunning;
+
+    WeatherInfo parseCurrentWeatherJson(const json& json);
+    std::vector<ForecastInfo> parseForecastJson(const json& json);
 
 public:
-    WeatherAPI(const std::string& key);
+    WeatherAPI(const std::string& apiKey);
+    ~WeatherAPI();
 
-    // Fetch current weather data for a city
-    std::optional<WeatherData> getCurrentWeather(const std::string& city);
+    std::future<WeatherInfo> getCurrentWeather(const std::string& cityName);
+    std::future<std::vector<ForecastInfo>> getForecast(const std::string& cityName, int days = 5);
+    std::future<std::vector<std::string>> searchCity(const std::string& query);
+    void cancel();
+    void updateApiKey(const std::string& newApiKey);
 
-    // Fetch 5-day forecast for a city
-    bool getForecast(WeatherData& weatherData);
-
-    // Parse JSON response into WeatherData
-    WeatherData parseCurrentWeather(const std::string& jsonResponse, const std::string& city);
-    std::vector<WeatherData::Forecast> parseForecast(const std::string& jsonResponse);
 };

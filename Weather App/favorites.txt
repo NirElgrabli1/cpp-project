@@ -1,9 +1,9 @@
 Tel Aviv
+3
 Jerusalem
+jerusalem
 Haifa
 ?
-3
-jerusalem
 Berlin
 London
 Paris
